@@ -8,6 +8,14 @@
     "overview": "Synchronize anime watch status",
     "versions": [
       {
+        "checksum": "27713a8281c780eef3bb77c226c6253f",
+        "changelog": "Fix AniDB resolution for long series with sequel seasons",
+        "targetAbi": "10.11.11.0",
+        "sourceUrl": "https://github.com/AchingFever4064/jellyfin-ani-sync/releases/download/v4.4.3.0/ani-sync_4.4.3.0.zip",
+        "timestamp": "2026-07-31T18:00:10Z",
+        "version": "4.4.3.0"
+      },
+      {
         "checksum": "a8c5637c2d23813210b24c36e53d36f1",
         "changelog": "Fix AniDB resolution for long series with sequel seasons",
         "targetAbi": "10.11.11.0",
