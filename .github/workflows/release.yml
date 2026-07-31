@@ -59,18 +59,24 @@ jobs:
 
       - name: Package
         id: pkg
+        env:
+          VERSION:    ${{ inputs.version }}
+          TARGET_ABI: ${{ inputs.target_abi }}
+          CHANGELOG:  ${{ inputs.changelog }}
         run: |
           STAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           mkdir -p stage dist
 
           # meta.json must sit at the ZIP root next to the DLL.
+          # Values come through the environment rather than being spliced into
+          # this script, so a multi-line or quote-containing changelog is safe.
           jq -n \
             --arg name    "$PLUGIN_NAME" \
             --arg guid    "$PLUGIN_GUID" \
             --arg owner   "$PLUGIN_OWNER" \
-            --arg ver     "${{ inputs.version }}" \
-            --arg abi     "${{ inputs.target_abi }}" \
-            --arg log     "${{ inputs.changelog }}" \
+            --arg ver     "$VERSION" \
+            --arg abi     "$TARGET_ABI" \
+            --arg log     "$CHANGELOG" \
             --arg stamp   "$STAMP" \
             '{category:"General", changelog:$log,
               description:"Synchronize anime watch status between Jellyfin and anime tracking sites.",
@@ -79,22 +85,24 @@ jobs:
             > stage/meta.json
 
           cp publish/jellyfin-ani-sync.dll stage/
-          (cd stage && zip -X -r "../dist/ani-sync_${{ inputs.version }}.zip" meta.json jellyfin-ani-sync.dll)
+          (cd stage && zip -X -r "../dist/ani-sync_${VERSION}.zip" meta.json jellyfin-ani-sync.dll)
 
-          CHECKSUM="$(md5sum "dist/ani-sync_${{ inputs.version }}.zip" | cut -d' ' -f1)"
+          CHECKSUM="$(md5sum "dist/ani-sync_${VERSION}.zip" | cut -d' ' -f1)"
           echo "checksum=$CHECKSUM" >> "$GITHUB_OUTPUT"
           echo "timestamp=$STAMP"   >> "$GITHUB_OUTPUT"
           echo "Packaged with MD5 $CHECKSUM"
-          unzip -l "dist/ani-sync_${{ inputs.version }}.zip"
+          unzip -l "dist/ani-sync_${VERSION}.zip"
 
       - name: Publish GitHub Release
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN:  ${{ github.token }}
+          VERSION:   ${{ inputs.version }}
+          CHANGELOG: ${{ inputs.changelog }}
         run: |
-          gh release create "v${{ inputs.version }}" \
-            "dist/ani-sync_${{ inputs.version }}.zip" \
-            --title "v${{ inputs.version }}" \
-            --notes "${{ inputs.changelog }}"
+          gh release create "v${VERSION}" \
+            "dist/ani-sync_${VERSION}.zip" \
+            --title "v${VERSION}" \
+            --notes "$CHANGELOG"
 
       - name: Update manifest.json
         env:
