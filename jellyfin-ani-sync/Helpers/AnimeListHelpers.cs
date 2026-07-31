@@ -224,7 +224,7 @@ namespace jellyfin_ani_sync.Helpers {
             return (null, null);
         }
 
-        private static (int? aniDbId, int? episodeOffset) GetAniDbByEpisodeOffset(ILogger logger, int? absoluteEpisodeNumber, int seasonNumber, int episodeNumber, List<AnimeListAnime> related) {
+        internal static (int? aniDbId, int? episodeOffset) GetAniDbByEpisodeOffset(ILogger logger, int? absoluteEpisodeNumber, int seasonNumber, int episodeNumber, List<AnimeListAnime> related) {
             if (absoluteEpisodeNumber != null) {
                 // -----------------------------------------------------------------
                 // FIX 2: the original predicate compared only Start/End and ignored
@@ -265,7 +265,7 @@ namespace jellyfin_ani_sync.Helpers {
             }
         }
 
-        private static (int? aniDbId, int? episodeOffset) SeasonLookup(ILogger logger, int seasonNumber, int episodeNumber, List<AnimeListAnime> related) {
+        internal static (int? aniDbId, int? episodeOffset) SeasonLookup(ILogger logger, int seasonNumber, int episodeNumber, List<AnimeListAnime> related) {
             logger.LogInformation("Looking up AniDB by season offset");
 
             // First, consider mappings from absolute-numbered seasons. If there
