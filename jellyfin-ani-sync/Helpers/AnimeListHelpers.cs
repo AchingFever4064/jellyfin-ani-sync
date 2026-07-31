@@ -309,7 +309,7 @@ namespace jellyfin_ani_sync.Helpers {
             // are TVDB season numbers. If your metadata provider does not number
             // seasons the way TVDB does, this lookup will silently pick the wrong
             // entry - which is exactly why FIX 1 short-circuits it where possible.
-            logger.LogInformation($"(AniDb) Season lookup for Jellyfin season {seasonNumber}, episode {episodeNumber} resolved to AniDB ID {foundMapping?.Anidbid ?? "<none>"} ({foundMapping?.Name ?? "<none>"}) with offset {(resolvedOffset.HasValue ? resolvedOffset.Value.ToString() : "<none>")}");
+            logger.LogInformation($"(AniDb) Season lookup for tvdb season {seasonNumber}, episode {episodeNumber} resolved to AniDB ID {foundMapping?.Anidbid ?? "<none>"} ({foundMapping?.Name ?? "<none>"}) with offset {(resolvedOffset.HasValue ? resolvedOffset.Value.ToString() : "<none>")}");
 
             return (
                 int.TryParse(foundMapping?.Anidbid, out var aniDbId) ? aniDbId : null,

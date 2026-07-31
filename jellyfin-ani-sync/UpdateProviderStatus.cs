@@ -287,7 +287,23 @@ namespace jellyfin_ani_sync {
                                                 found = true;
                                                 break;
                                             }
-                                        } else if (matchingAnime.NumEpisodes < episode?.IndexNumber.Value) {
+                                        } else if (matchingAnime.NumEpisodes > 0 && matchingAnime.NumEpisodes < episode?.IndexNumber.Value) {
+                                            // FIX 9: NumEpisodes is a non-nullable int, so an unknown
+                                            // episode count arrives as 0 - which is the norm for a
+                                            // currently-airing show. Without the > 0 guard this branch
+                                            // fires on every episode of every airing series that reaches
+                                            // the title-search fallback.
+                                            //
+                                            // Walking cannot produce a correct answer in that case
+                                            // regardless: the loop computes the next cour's episode
+                                            // number as episodeCount - totalEpisodesWatched, and
+                                            // totalEpisodesWatched accumulates season.NumEpisodes. With
+                                            // 0 the offset is always 0, so the raw episode number gets
+                                            // sent to the sequel. The arithmetic requires a known
+                                            // length. When no sequel exists the code already recovers
+                                            // via isRootSeason; this guard applies that same judgement
+                                            // up front, so the outcome no longer depends on whether the
+                                            // entry happens to have a Sequel relation.
                                             _logger.LogInformation($"({ApiName}) Watched episode passes total episodes in season! Checking for additional seasons/cours...");
                                             // either we have found the wrong series (highly unlikely) or it is a multi cour series/Jellyfin has grouped next season into the current.
                                             int seasonEpisodeCounter = matchingAnime.NumEpisodes;
@@ -781,7 +797,7 @@ namespace jellyfin_ani_sync {
         /// <param name="seasonNumber">Index of the season to get.</param>
         /// <returns>The different seasons anime or null if unable to retrieve the relations.</returns>
         internal async Task<Anime?> GetDifferentSeasonAnime(int animeId, int seasonNumber, string? alternativeId = null) {
-            _logger.LogInformation($"({ApiName}) Attempting to get season 1...");
+            _logger.LogInformation($"({ApiName}) Attempting to get season {seasonNumber}...");
             Anime retrievedSeason = await ApiCallHelpers.GetAnime(animeId, getRelated: true, alternativeId: alternativeId);
 
             if (retrievedSeason != null) {
