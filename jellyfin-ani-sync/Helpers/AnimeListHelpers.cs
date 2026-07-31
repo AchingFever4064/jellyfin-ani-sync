@@ -65,7 +65,46 @@ namespace jellyfin_ani_sync.Helpers {
             if (video is Episode episodeWithSeasonAniDbId &&
                 TryGetProviderId(episodeWithSeasonAniDbId.Season?.ProviderIds, "Anidb", out var seasonAniDbIdRaw) &&
                 int.TryParse(seasonAniDbIdRaw, out var seasonAniDbId)) {
-                logger.LogInformation($"(Anidb) Season {seasonNumber} carries its own AniDb ID ({seasonAniDbId}); using it directly with no episode offset");
+                // -----------------------------------------------------------------
+                // FIX 10: fix 1's premise is "one Jellyfin season == one AniDB series".
+                // Shokofin's season merging breaks that premise: several AniDB series
+                // are folded into a single season with continuous 1..N numbering, and
+                // the season-level AniDB ID then describes only the FIRST of them.
+                //
+                // Shoko tags every episode with the series it really belongs to, so a
+                // mismatch between the episode's "Shoko Series" and the season's is a
+                // reliable, purely local signal that this season is merged.
+                // -----------------------------------------------------------------
+                bool haveSeasonShoko = TryGetProviderId(episodeWithSeasonAniDbId.Season?.ProviderIds, "Shoko Series", out var seasonShokoSeries);
+                bool haveEpisodeShoko = TryGetProviderId(episodeWithSeasonAniDbId.ProviderIds, "Shoko Series", out var episodeShokoSeries);
+                bool mergedSeason = haveSeasonShoko && haveEpisodeShoko &&
+                                    !string.Equals(seasonShokoSeries, episodeShokoSeries, StringComparison.OrdinalIgnoreCase);
+
+                if (!mergedSeason) {
+                    logger.LogInformation($"(Anidb) Season {seasonNumber} carries its own AniDb ID ({seasonAniDbId}); using it directly with no episode offset");
+                    return (seasonAniDbId, null);
+                }
+
+                logger.LogInformation($"(Anidb) Season {seasonNumber} is merged (season Shoko Series {seasonShokoSeries}, episode Shoko Series {episodeShokoSeries}); resolving the correct entry from the anime list XML");
+
+                if (animeListXml?.Anime != null) {
+                    // Derive the TVDB season from the season's own AniDB row rather than
+                    // from Jellyfin's season index; the two disagree whenever the metadata
+                    // provider does not number seasons the way TVDB does.
+                    var seasonRow = animeListXml.Anime.FirstOrDefault(a => a.Anidbid == seasonAniDbId.ToString());
+                    if (seasonRow != null && int.TryParse(seasonRow.Defaulttvdbseason, out int tvdbSeason)) {
+                        var relatedRows = animeListXml.Anime.Where(a => a.Tvdbid == seasonRow.Tvdbid).ToList();
+                        var resolved = SeasonLookup(logger, tvdbSeason, episodeNumber, relatedRows);
+                        if (resolved.aniDbId != null) {
+                            logger.LogInformation($"(Anidb) Merged season resolved to AniDb ID {resolved.aniDbId} with offset {(resolved.episodeOffset.HasValue ? resolved.episodeOffset.Value.ToString() : "<none>")} (tvdb season {tvdbSeason})");
+                            return resolved;
+                        }
+                    } else {
+                        logger.LogWarning($"(Anidb) AniDb ID {seasonAniDbId} has no usable anime list XML row; cannot resolve merged season");
+                    }
+                }
+
+                logger.LogWarning($"(Anidb) Could not resolve merged season from the XML; falling back to the season AniDb ID ({seasonAniDbId}). Episode numbers past the first merged part will be wrong.");
                 return (seasonAniDbId, null);
             }
 
