@@ -1,1 +1,20 @@
-[]
+[
+  {
+    "category": "General",
+    "guid": "c78f11cf-93e6-4423-8c42-d2c255b70e47",
+    "name": "Ani-Sync",
+    "description": "Synchronize anime watch status between Jellyfin and anime tracking sites.",
+    "owner": "AchingFever4064",
+    "overview": "Synchronize anime watch status",
+    "versions": [
+      {
+        "checksum": "43b3721535a0bed63538b4846cdb771d",
+        "changelog": "Consolidate releases; harden changelog handling in workflow",
+        "targetAbi": "10.11.11.0",
+        "sourceUrl": "https://github.com/AchingFever4064/jellyfin-ani-sync/releases/download/v4.4.10.0/ani-sync_4.4.10.0.zip",
+        "timestamp": "2026-07-31T20:54:21Z",
+        "version": "4.4.10.0"
+      }
+    ]
+  }
+]
