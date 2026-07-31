@@ -111,6 +111,7 @@ namespace jellyfin_ani_sync {
                     _logger.LogInformation($"[ani-sync-diag] Season {episode.Season?.IndexNumber} providers: {Dump(episode.Season?.ProviderIds)}");
                     _logger.LogInformation($"[ani-sync-diag] Episode {episode.IndexNumber} '{episode.Name}' providers: {Dump(episode.ProviderIds)}");
                     _logger.LogInformation($"[ani-sync-diag] Series contains {episode.Series?.Children.OfType<Season>().Count()} season(s)");
+                    _logger.LogInformation($"[ani-sync-diag] Titles -> name: '{episode.SeriesName}', originalTitle: '{episode.Series?.OriginalTitle ?? "<none>"}'");
                 }
 
                 (int? aniDbId, int? episodeOffset) aniDbId = (null, null);
@@ -151,7 +152,15 @@ namespace jellyfin_ani_sync {
                             };
                             _logger.LogWarning("Did not get provider IDs, defaulting to episode provided AniDb ID");
                         } else {
-                            _logger.LogInformation("Retrieved provider IDs");
+                            // FIX 8: distinguish "ARM gave us a usable ID" from "ARM gave us a
+                            // row that carries none". Only the former avoids the title-search
+                            // fallback, so reporting both as success made the fallback look
+                            // like a bug in ID resolution rather than a gap in the database.
+                            if (_apiIds.Anilist is null or 0 && _apiIds.MyAnimeList is null or 0 && _apiIds.Kitsu is null or 0) {
+                                _logger.LogWarning($"ARM server has a record for AniDb ID {aniDbId.aniDbId.Value} but no tracker IDs; falling back to title search");
+                            } else {
+                                _logger.LogInformation("Retrieved provider IDs");
+                            }
                         }
                     }
                 }
@@ -366,11 +375,33 @@ namespace jellyfin_ani_sync {
         /// <param name="movie">The movie if its a single episode movie.</param>
         /// <returns></returns>
         private bool TitleCheck(Anime anime, Episode episode, Movie movie) {
-            var title = _animeType == typeof(Episode) ? episode.SeriesName : movie.Name;
-            return CompareStrings(anime.Title, title) ||
-                   (anime.AlternativeTitles.En != null && CompareStrings(anime.AlternativeTitles.En, title)) ||
-                   (anime.AlternativeTitles.Ja != null && CompareStrings(anime.AlternativeTitles.Ja, title)) ||
-                   (anime.AlternativeTitles.Synonyms != null && anime.AlternativeTitles.Synonyms.Any(synonym => CompareStrings(synonym, title)));
+            // FIX 7: try every title Jellyfin holds for the item, not just the display
+            // name. Metadata providers such as Shokofin populate OriginalTitle with the
+            // series' native title, and AniList carries a native title for effectively
+            // every entry - so this matches even when the romanisations disagree
+            // (e.g. AniDB "Otome Kaijuu Caramelise" vs AniList "Otome Kaijuu Caraméliser").
+            // It lets a library display English or romaji titles while still resolving
+            // correctly, instead of forcing the whole library into one naming scheme.
+            var candidateTitles = new List<string>();
+            if (_animeType == typeof(Episode)) {
+                candidateTitles.Add(episode.SeriesName);
+                candidateTitles.Add(episode.Series?.OriginalTitle);
+            } else {
+                candidateTitles.Add(movie.Name);
+                candidateTitles.Add(movie.OriginalTitle);
+            }
+
+            foreach (var title in candidateTitles) {
+                if (string.IsNullOrWhiteSpace(title)) continue;
+                if (CompareStrings(anime.Title, title) ||
+                    (anime.AlternativeTitles.En != null && CompareStrings(anime.AlternativeTitles.En, title)) ||
+                    (anime.AlternativeTitles.Ja != null && CompareStrings(anime.AlternativeTitles.Ja, title)) ||
+                    (anime.AlternativeTitles.Synonyms != null && anime.AlternativeTitles.Synonyms.Any(synonym => CompareStrings(synonym, title)))) {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         /// <summary>
