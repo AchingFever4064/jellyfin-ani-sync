@@ -8,6 +8,14 @@
     "overview": "Synchronize anime watch status",
     "versions": [
       {
+        "checksum": "68b8f2ee3f023528a600edf5e52c625a",
+        "changelog": "Fix 9: skip cour walk when episode count is unknown",
+        "targetAbi": "10.11.11.0",
+        "sourceUrl": "https://github.com/AchingFever4064/jellyfin-ani-sync/releases/download/v4.4.5.0/ani-sync_4.4.5.0.zip",
+        "timestamp": "2026-07-31T19:50:56Z",
+        "version": "4.4.5.0"
+      },
+      {
         "checksum": "50e2bc39c31a263726a2f2fba053be68",
         "changelog": "Fix AniDB resolution for long series with sequel seasons",
         "targetAbi": "10.11.11.0",
