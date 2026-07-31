@@ -23,6 +23,26 @@ namespace jellyfin_ani_sync.Helpers {
         /// <returns></returns>
         public static async Task<(int? aniDbId, int? episodeOffset)> GetAniDbId(ILogger logger, Video video, int episodeNumber, int seasonNumber, AnimeListXml animeListXml) {
             int aniDbId;
+
+            // ---------------------------------------------------------------------
+            // FIX 1: if the season already carries its own AniDB ID, trust it.
+            //
+            // Metadata providers such as Shokofin assign a distinct AniDB series ID
+            // to every season and number that season's episodes 1..N relative to
+            // that AniDB series. In that situation the anime-list XML lookup below
+            // is not merely redundant, it is actively harmful: the XML's season
+            // numbers and episodeoffset values are expressed in TVDB terms, so
+            // re-deriving the ID collapses sequels back onto the parent series and
+            // applies an offset that does not belong to AniDB numbering.
+            // ---------------------------------------------------------------------
+            if (video is Episode episodeWithSeasonAniDbId &&
+                episodeWithSeasonAniDbId.Season?.ProviderIds != null &&
+                episodeWithSeasonAniDbId.Season.ProviderIds.TryGetValue("Anidb", out var seasonAniDbIdRaw) &&
+                int.TryParse(seasonAniDbIdRaw, out var seasonAniDbId)) {
+                logger.LogInformation($"(Anidb) Season {seasonNumber} carries its own AniDb ID ({seasonAniDbId}); using it directly with no episode offset");
+                return (seasonAniDbId, null);
+            }
+
             if (animeListXml == null) return (null, null);
             Dictionary<string, string> providers;
             if (video is Episode) {
@@ -141,13 +161,37 @@ namespace jellyfin_ani_sync.Helpers {
 
         private static (int? aniDbId, int? episodeOffset) GetAniDbByEpisodeOffset(ILogger logger, int? absoluteEpisodeNumber, int seasonNumber, int episodeNumber, List<AnimeListAnime> related) {
             if (absoluteEpisodeNumber != null) {
-                // FIXME: return correct offset when using absolute episode
-                // numbers.
-                var foundMapping = related.FirstOrDefault(animeListAnime => animeListAnime.MappingList?.Mapping?.FirstOrDefault(mapping => mapping.Start <= absoluteEpisodeNumber && mapping.End >= absoluteEpisodeNumber) != null);
+                // -----------------------------------------------------------------
+                // FIX 2: the original predicate compared only Start/End and ignored
+                // the season entirely. Start and End are plain ints, so they default
+                // to 0 when the attribute is absent, and FirstOrDefault walks the
+                // list in raw document order. The net effect was that the first
+                // entry owning a wide mapping table always won - for a franchise
+                // like Bleach that is the original 366-episode series - while
+                // sequel entries, which carry no <mapping-list> at all, could never
+                // be selected. Require a genuine range in the correct TVDB season,
+                // and return that mapping's offset rather than null.
+                // -----------------------------------------------------------------
+                AnimeListAnime foundMapping = null;
+                Mapping foundRange = null;
+                foreach (var animeListAnime in related) {
+                    var match = animeListAnime.MappingList?.Mapping?.FirstOrDefault(mapping =>
+                        mapping.Tvdbseason == seasonNumber &&
+                        mapping.Start > 0 && mapping.End > 0 &&
+                        mapping.Start <= absoluteEpisodeNumber &&
+                        mapping.End >= absoluteEpisodeNumber);
+                    if (match != null) {
+                        foundMapping = animeListAnime;
+                        foundRange = match;
+                        break;
+                    }
+                }
+
                 if (foundMapping != null) {
-                    return (int.TryParse(foundMapping.Anidbid, out var aniDbId) ? aniDbId : null, null);
+                    logger.LogInformation($"(AniDb) Absolute episode {absoluteEpisodeNumber} matched AniDB ID {foundMapping.Anidbid} (tvdbseason {seasonNumber}, range {foundRange.Start}-{foundRange.End}, offset {foundRange.Offset})");
+                    return (int.TryParse(foundMapping.Anidbid, out var aniDbId) ? aniDbId : null, foundRange.Offset);
                 } else {
-                    logger.LogWarning("(AniDb) Could not lookup using absolute episode number (reason: no mappings found)");
+                    logger.LogWarning($"(AniDb) Could not lookup using absolute episode number {absoluteEpisodeNumber} (reason: no mapping covers that episode within tvdbseason {seasonNumber})");
                     return SeasonLookup(logger, seasonNumber, episodeNumber, related);
                 }
             } else {
@@ -191,11 +235,20 @@ namespace jellyfin_ani_sync.Helpers {
                     episodeNumber - m.Offset <= m.End)
                 ?? tvdbSeasonMappings?.FirstOrDefault();
 
+            var resolvedOffset = specificMapping?.Offset ?? (int.TryParse(foundMapping?.Episodeoffset, out var episodeOffset)
+                ? episodeOffset
+                : (int?)null);
+
+            // FIX 3: make the outcome of this branch visible. NOTE: seasonNumber here
+            // is Jellyfin's season index, while defaulttvdbseason/tvdbseason in the XML
+            // are TVDB season numbers. If your metadata provider does not number
+            // seasons the way TVDB does, this lookup will silently pick the wrong
+            // entry - which is exactly why FIX 1 short-circuits it where possible.
+            logger.LogInformation($"(AniDb) Season lookup for Jellyfin season {seasonNumber}, episode {episodeNumber} resolved to AniDB ID {foundMapping?.Anidbid ?? "<none>"} ({foundMapping?.Name ?? "<none>"}) with offset {(resolvedOffset.HasValue ? resolvedOffset.Value.ToString() : "<none>")}");
+
             return (
                 int.TryParse(foundMapping?.Anidbid, out var aniDbId) ? aniDbId : null,
-                specificMapping?.Offset ?? (int.TryParse(foundMapping?.Episodeoffset, out var episodeOffset)
-                    ? episodeOffset
-                    : null)
+                resolvedOffset
             );
         }
 

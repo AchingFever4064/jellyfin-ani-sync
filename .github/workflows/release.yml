@@ -1,0 +1,125 @@
+name: Release plugin
+
+# Run this by hand: Actions tab -> "Release plugin" -> Run workflow.
+# It builds the DLL, packages it exactly the way Jellyfin expects
+# (meta.json + jellyfin-ani-sync.dll at the ZIP root), publishes a GitHub
+# Release, and rewrites manifest.json so your Jellyfin repository picks it up.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Plugin version, four parts (e.g. 4.4.1.0). Must be higher than the last one you published.'
+        required: true
+        default: '4.4.1.0'
+      target_abi:
+        description: 'Minimum Jellyfin version. Must be <= your server version.'
+        required: true
+        default: '10.11.11.0'
+      changelog:
+        description: 'Changelog shown in the Jellyfin plugin catalogue.'
+        required: true
+        default: 'Fix AniDB resolution for long series with sequel seasons'
+
+permissions:
+  contents: write
+
+env:
+  PLUGIN_NAME: Ani-Sync
+  PLUGIN_OWNER: ${{ github.repository_owner }}
+  # Keeping the upstream GUID makes this a drop-in upgrade that inherits your
+  # existing plugin configuration. See BUILD-AND-TEST.md for when to change it.
+  PLUGIN_GUID: c78f11cf-93e6-4423-8c42-d2c255b70e47
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 9
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Validate version format
+        run: |
+          echo "${{ inputs.version }}" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' \
+            || { echo "::error::version must have four numeric parts, e.g. 4.4.1.0"; exit 1; }
+
+      - name: Build
+        run: |
+          dotnet publish jellyfin-ani-sync/jellyfin-ani-sync.csproj \
+            --configuration Release \
+            --output ./publish \
+            -p:Version=${{ inputs.version }} \
+            -p:AssemblyVersion=${{ inputs.version }} \
+            -p:FileVersion=${{ inputs.version }}
+          test -f ./publish/jellyfin-ani-sync.dll
+
+      - name: Package
+        id: pkg
+        run: |
+          STAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          mkdir -p stage dist
+
+          # meta.json must sit at the ZIP root next to the DLL.
+          jq -n \
+            --arg name    "$PLUGIN_NAME" \
+            --arg guid    "$PLUGIN_GUID" \
+            --arg owner   "$PLUGIN_OWNER" \
+            --arg ver     "${{ inputs.version }}" \
+            --arg abi     "${{ inputs.target_abi }}" \
+            --arg log     "${{ inputs.changelog }}" \
+            --arg stamp   "$STAMP" \
+            '{category:"General", changelog:$log,
+              description:"Synchronize anime watch status between Jellyfin and anime tracking sites.",
+              guid:$guid, name:$name, overview:"Synchronize anime watch status",
+              owner:$owner, targetAbi:$abi, timestamp:$stamp, version:$ver}' \
+            > stage/meta.json
+
+          cp publish/jellyfin-ani-sync.dll stage/
+          (cd stage && zip -X -r "../dist/ani-sync_${{ inputs.version }}.zip" meta.json jellyfin-ani-sync.dll)
+
+          CHECKSUM="$(md5sum "dist/ani-sync_${{ inputs.version }}.zip" | cut -d' ' -f1)"
+          echo "checksum=$CHECKSUM" >> "$GITHUB_OUTPUT"
+          echo "timestamp=$STAMP"   >> "$GITHUB_OUTPUT"
+          echo "Packaged with MD5 $CHECKSUM"
+          unzip -l "dist/ani-sync_${{ inputs.version }}.zip"
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v${{ inputs.version }}" \
+            "dist/ani-sync_${{ inputs.version }}.zip" \
+            --title "v${{ inputs.version }}" \
+            --notes "${{ inputs.changelog }}"
+
+      - name: Update manifest.json
+        env:
+          MANIFEST_PATH: manifest.json
+          VERSION:       ${{ inputs.version }}
+          CHECKSUM:      ${{ steps.pkg.outputs.checksum }}
+          TARGET_ABI:    ${{ inputs.target_abi }}
+          CHANGELOG:     ${{ inputs.changelog }}
+          TIMESTAMP:     ${{ steps.pkg.outputs.timestamp }}
+          PLUGIN_GUID:   ${{ env.PLUGIN_GUID }}
+          PLUGIN_NAME:   ${{ env.PLUGIN_NAME }}
+          PLUGIN_OWNER:  ${{ env.PLUGIN_OWNER }}
+          SOURCE_URL:    https://github.com/${{ github.repository }}/releases/download/v${{ inputs.version }}/ani-sync_${{ inputs.version }}.zip
+        run: python3 .github/scripts/update_manifest.py
+
+      - name: Commit manifest
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add manifest.json
+          git diff --staged --quiet && { echo "manifest unchanged"; exit 0; }
+          git commit -m "Publish ${{ inputs.version }}"
+          git push origin HEAD:${{ github.ref_name }}
+
+      - name: Repository URL
+        run: |
+          echo "### Add this URL to Jellyfin" >> $GITHUB_STEP_SUMMARY
+          echo '`https://raw.githubusercontent.com/${{ github.repository }}/${{ github.ref_name }}/manifest.json`' >> $GITHUB_STEP_SUMMARY
