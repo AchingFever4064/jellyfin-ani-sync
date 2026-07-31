@@ -14,6 +14,33 @@ using Microsoft.Extensions.Logging;
 namespace jellyfin_ani_sync.Helpers {
     public class AnimeListHelpers {
         /// <summary>
+        /// Look up a provider ID without caring about key casing.
+        ///
+        /// Jellyfin's ProviderIds dictionary is NOT reliably case-insensitive once an
+        /// item has been round-tripped through the database, and metadata providers
+        /// disagree about spelling: Shokofin writes "AniDB", while this plugin
+        /// historically looked for "Anidb". The result was that every AniDB ID in a
+        /// Shoko-backed library was invisible to the plugin, silently falling through
+        /// to the TVDB code path.
+        /// </summary>
+        public static bool TryGetProviderId(Dictionary<string, string> providerIds, string key, out string value) {
+            value = null;
+            if (providerIds == null) return false;
+            foreach (var providerId in providerIds) {
+                if (string.Equals(providerId.Key, key, StringComparison.OrdinalIgnoreCase)) {
+                    value = providerId.Value;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        public static bool HasProviderId(Dictionary<string, string> providerIds, string key) {
+            return TryGetProviderId(providerIds, key, out _);
+        }
+
+        /// <summary>
         /// Get the AniDb ID from the set of providers provided.
         /// </summary>
         /// <param name="logger">Logger.</param>
@@ -36,8 +63,7 @@ namespace jellyfin_ani_sync.Helpers {
             // applies an offset that does not belong to AniDB numbering.
             // ---------------------------------------------------------------------
             if (video is Episode episodeWithSeasonAniDbId &&
-                episodeWithSeasonAniDbId.Season?.ProviderIds != null &&
-                episodeWithSeasonAniDbId.Season.ProviderIds.TryGetValue("Anidb", out var seasonAniDbIdRaw) &&
+                TryGetProviderId(episodeWithSeasonAniDbId.Season?.ProviderIds, "Anidb", out var seasonAniDbIdRaw) &&
                 int.TryParse(seasonAniDbIdRaw, out var seasonAniDbId)) {
                 logger.LogInformation($"(Anidb) Season {seasonNumber} carries its own AniDb ID ({seasonAniDbId}); using it directly with no episode offset");
                 return (seasonAniDbId, null);

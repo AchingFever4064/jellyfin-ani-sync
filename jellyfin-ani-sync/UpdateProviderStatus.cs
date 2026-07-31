@@ -133,11 +133,11 @@ namespace jellyfin_ani_sync {
                         _logger.LogInformation("Retrieved provider IDs");
                     }
                 } else if (_animeType == typeof(Episode)
-                               ? (episode.Series.ProviderIds.ContainsKey("Tvdb") ||
-                                  episode.Season.ProviderIds.ContainsKey("Anidb") ||
-                                  episode.Series.ProviderIds.ContainsKey("Anidb"))
+                               ? (AnimeListHelpers.HasProviderId(episode.Series.ProviderIds, "Tvdb") ||
+                                  AnimeListHelpers.HasProviderId(episode.Season.ProviderIds, "Anidb") ||
+                                  AnimeListHelpers.HasProviderId(episode.Series.ProviderIds, "Anidb"))
                                : movie.ProviderIds != null &&
-                                 movie.ProviderIds.ContainsKey("Anidb")) {
+                                 AnimeListHelpers.HasProviderId(movie.ProviderIds, "Anidb")) {
                     AnimeListHelpers.AnimeListXml animeListXml = await AnimeListHelpers.GetAnimeListFileContents(_logger, _loggerFactory, _httpClientFactory, _applicationPaths);
                     aniDbId = _animeType == typeof(Episode)
                         ? await AnimeListHelpers.GetAniDbId(_logger, episode, episode.IndexNumber.Value, episode.Season.IndexNumber.Value, animeListXml)
