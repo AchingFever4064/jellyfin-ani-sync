@@ -101,6 +101,19 @@ namespace jellyfin_ani_sync {
                     return;
                 }
 
+                // FIX 4: diagnostics. Prints exactly which provider IDs Jellyfin holds at
+                // each level, plus the season count that drives the absolute-episode path.
+                if (_animeType == typeof(Episode)) {
+                    string Dump(Dictionary<string, string> ids) => ids == null || ids.Count == 0
+                        ? "<none>"
+                        : string.Join(", ", ids.Select(kv => $"{kv.Key}={kv.Value}"));
+                    _logger.LogInformation($"[ani-sync-diag] Series '{episode.Series?.Name}' providers: {Dump(episode.Series?.ProviderIds)}");
+                    _logger.LogInformation($"[ani-sync-diag] Season {episode.Season?.IndexNumber} providers: {Dump(episode.Season?.ProviderIds)}");
+                    _logger.LogInformation($"[ani-sync-diag] Episode {episode.IndexNumber} '{episode.Name}' providers: {Dump(episode.ProviderIds)}");
+                    _logger.LogInformation($"[ani-sync-diag] Series contains {episode.Series?.Children.OfType<Season>().Count()} season(s)");
+                    _logger.LogInformation($"[ani-sync-diag] Titles -> name: '{episode.SeriesName}', originalTitle: '{episode.Series?.OriginalTitle ?? "<none>"}'");
+                }
+
                 (int? aniDbId, int? episodeOffset) aniDbId = (null, null);
                 if (_animeType == typeof(Episode)
                         ? episode.ProviderIds != null &&
@@ -121,11 +134,11 @@ namespace jellyfin_ani_sync {
                         _logger.LogInformation("Retrieved provider IDs");
                     }
                 } else if (_animeType == typeof(Episode)
-                               ? (episode.Series.ProviderIds.ContainsKey("Tvdb") ||
-                                  episode.Season.ProviderIds.ContainsKey("Anidb") ||
-                                  episode.Series.ProviderIds.ContainsKey("Anidb"))
+                               ? (AnimeListHelpers.HasProviderId(episode.Series.ProviderIds, "Tvdb") ||
+                                  AnimeListHelpers.HasProviderId(episode.Season.ProviderIds, "Anidb") ||
+                                  AnimeListHelpers.HasProviderId(episode.Series.ProviderIds, "Anidb"))
                                : movie.ProviderIds != null &&
-                                 movie.ProviderIds.ContainsKey("Anidb")) {
+                                 AnimeListHelpers.HasProviderId(movie.ProviderIds, "Anidb")) {
                     AnimeListHelpers.AnimeListXml animeListXml = await AnimeListHelpers.GetAnimeListFileContents(_logger, _loggerFactory, _httpClientFactory, _applicationPaths);
                     aniDbId = _animeType == typeof(Episode)
                         ? await AnimeListHelpers.GetAniDbId(_logger, episode, episode.IndexNumber.Value, episode.Season.IndexNumber.Value, animeListXml)
@@ -139,7 +152,15 @@ namespace jellyfin_ani_sync {
                             };
                             _logger.LogWarning("Did not get provider IDs, defaulting to episode provided AniDb ID");
                         } else {
-                            _logger.LogInformation("Retrieved provider IDs");
+                            // FIX 8: distinguish "ARM gave us a usable ID" from "ARM gave us a
+                            // row that carries none". Only the former avoids the title-search
+                            // fallback, so reporting both as success made the fallback look
+                            // like a bug in ID resolution rather than a gap in the database.
+                            if (_apiIds.Anilist is null or 0 && _apiIds.MyAnimeList is null or 0 && _apiIds.Kitsu is null or 0) {
+                                _logger.LogWarning($"ARM server has a record for AniDb ID {aniDbId.aniDbId.Value} but no tracker IDs; falling back to title search");
+                            } else {
+                                _logger.LogInformation("Retrieved provider IDs");
+                            }
                         }
                     }
                 }
@@ -266,7 +287,23 @@ namespace jellyfin_ani_sync {
                                                 found = true;
                                                 break;
                                             }
-                                        } else if (matchingAnime.NumEpisodes < episode?.IndexNumber.Value) {
+                                        } else if (matchingAnime.NumEpisodes > 0 && matchingAnime.NumEpisodes < episode?.IndexNumber.Value) {
+                                            // FIX 9: NumEpisodes is a non-nullable int, so an unknown
+                                            // episode count arrives as 0 - which is the norm for a
+                                            // currently-airing show. Without the > 0 guard this branch
+                                            // fires on every episode of every airing series that reaches
+                                            // the title-search fallback.
+                                            //
+                                            // Walking cannot produce a correct answer in that case
+                                            // regardless: the loop computes the next cour's episode
+                                            // number as episodeCount - totalEpisodesWatched, and
+                                            // totalEpisodesWatched accumulates season.NumEpisodes. With
+                                            // 0 the offset is always 0, so the raw episode number gets
+                                            // sent to the sequel. The arithmetic requires a known
+                                            // length. When no sequel exists the code already recovers
+                                            // via isRootSeason; this guard applies that same judgement
+                                            // up front, so the outcome no longer depends on whether the
+                                            // entry happens to have a Sequel relation.
                                             _logger.LogInformation($"({ApiName}) Watched episode passes total episodes in season! Checking for additional seasons/cours...");
                                             // either we have found the wrong series (highly unlikely) or it is a multi cour series/Jellyfin has grouped next season into the current.
                                             int seasonEpisodeCounter = matchingAnime.NumEpisodes;
@@ -354,11 +391,33 @@ namespace jellyfin_ani_sync {
         /// <param name="movie">The movie if its a single episode movie.</param>
         /// <returns></returns>
         private bool TitleCheck(Anime anime, Episode episode, Movie movie) {
-            var title = _animeType == typeof(Episode) ? episode.SeriesName : movie.Name;
-            return CompareStrings(anime.Title, title) ||
-                   (anime.AlternativeTitles.En != null && CompareStrings(anime.AlternativeTitles.En, title)) ||
-                   (anime.AlternativeTitles.Ja != null && CompareStrings(anime.AlternativeTitles.Ja, title)) ||
-                   (anime.AlternativeTitles.Synonyms != null && anime.AlternativeTitles.Synonyms.Any(synonym => CompareStrings(synonym, title)));
+            // FIX 7: try every title Jellyfin holds for the item, not just the display
+            // name. Metadata providers such as Shokofin populate OriginalTitle with the
+            // series' native title, and AniList carries a native title for effectively
+            // every entry - so this matches even when the romanisations disagree
+            // (e.g. AniDB "Otome Kaijuu Caramelise" vs AniList "Otome Kaijuu Caraméliser").
+            // It lets a library display English or romaji titles while still resolving
+            // correctly, instead of forcing the whole library into one naming scheme.
+            var candidateTitles = new List<string>();
+            if (_animeType == typeof(Episode)) {
+                candidateTitles.Add(episode.SeriesName);
+                candidateTitles.Add(episode.Series?.OriginalTitle);
+            } else {
+                candidateTitles.Add(movie.Name);
+                candidateTitles.Add(movie.OriginalTitle);
+            }
+
+            foreach (var title in candidateTitles) {
+                if (string.IsNullOrWhiteSpace(title)) continue;
+                if (CompareStrings(anime.Title, title) ||
+                    (anime.AlternativeTitles.En != null && CompareStrings(anime.AlternativeTitles.En, title)) ||
+                    (anime.AlternativeTitles.Ja != null && CompareStrings(anime.AlternativeTitles.Ja, title)) ||
+                    (anime.AlternativeTitles.Synonyms != null && anime.AlternativeTitles.Synonyms.Any(synonym => CompareStrings(synonym, title)))) {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         /// <summary>
@@ -738,7 +797,7 @@ namespace jellyfin_ani_sync {
         /// <param name="seasonNumber">Index of the season to get.</param>
         /// <returns>The different seasons anime or null if unable to retrieve the relations.</returns>
         internal async Task<Anime?> GetDifferentSeasonAnime(int animeId, int seasonNumber, string? alternativeId = null) {
-            _logger.LogInformation($"({ApiName}) Attempting to get season 1...");
+            _logger.LogInformation($"({ApiName}) Attempting to get season {seasonNumber}...");
             Anime retrievedSeason = await ApiCallHelpers.GetAnime(animeId, getRelated: true, alternativeId: alternativeId);
 
             if (retrievedSeason != null) {
