@@ -103,15 +103,18 @@ namespace jellyfin_ani_sync {
 
                 // FIX 4: diagnostics. Prints exactly which provider IDs Jellyfin holds at
                 // each level, plus the season count that drives the absolute-episode path.
-                if (_animeType == typeof(Episode)) {
+                // Logged at Debug: this runs on every played episode, and the information
+                // is only useful when investigating a mis-resolution. The IsEnabled guard
+                // keeps the interpolated strings from being built when Debug is off.
+                if (_animeType == typeof(Episode) && _logger.IsEnabled(LogLevel.Debug)) {
                     string Dump(Dictionary<string, string> ids) => ids == null || ids.Count == 0
                         ? "<none>"
                         : string.Join(", ", ids.Select(kv => $"{kv.Key}={kv.Value}"));
-                    _logger.LogInformation($"[ani-sync-diag] Series '{episode.Series?.Name}' providers: {Dump(episode.Series?.ProviderIds)}");
-                    _logger.LogInformation($"[ani-sync-diag] Season {episode.Season?.IndexNumber} providers: {Dump(episode.Season?.ProviderIds)}");
-                    _logger.LogInformation($"[ani-sync-diag] Episode {episode.IndexNumber} '{episode.Name}' providers: {Dump(episode.ProviderIds)}");
-                    _logger.LogInformation($"[ani-sync-diag] Series contains {episode.Series?.Children.OfType<Season>().Count()} season(s)");
-                    _logger.LogInformation($"[ani-sync-diag] Titles -> name: '{episode.SeriesName}', originalTitle: '{episode.Series?.OriginalTitle ?? "<none>"}'");
+                    _logger.LogDebug($"[ani-sync-diag] Series '{episode.Series?.Name}' providers: {Dump(episode.Series?.ProviderIds)}");
+                    _logger.LogDebug($"[ani-sync-diag] Season {episode.Season?.IndexNumber} providers: {Dump(episode.Season?.ProviderIds)}");
+                    _logger.LogDebug($"[ani-sync-diag] Episode {episode.IndexNumber} '{episode.Name}' providers: {Dump(episode.ProviderIds)}");
+                    _logger.LogDebug($"[ani-sync-diag] Series contains {episode.Series?.Children.OfType<Season>().Count()} season(s)");
+                    _logger.LogDebug($"[ani-sync-diag] Titles -> name: '{episode.SeriesName}', originalTitle: '{episode.Series?.OriginalTitle ?? "<none>"}'");
                 }
 
                 (int? aniDbId, int? episodeOffset) aniDbId = (null, null);
