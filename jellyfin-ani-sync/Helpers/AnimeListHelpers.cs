@@ -94,7 +94,7 @@ namespace jellyfin_ani_sync.Helpers {
                     var seasonRow = animeListXml.Anime.FirstOrDefault(a => a.Anidbid == seasonAniDbId.ToString());
                     if (seasonRow != null && int.TryParse(seasonRow.Defaulttvdbseason, out int tvdbSeason)) {
                         var relatedRows = animeListXml.Anime.Where(a => a.Tvdbid == seasonRow.Tvdbid).ToList();
-                        var resolved = SeasonLookup(logger, tvdbSeason, episodeNumber, relatedRows);
+                        var resolved = GetAniDbByEpisodeOffset(logger, GetAbsoluteEpisodeNumber(episodeWithSeasonAniDbId), tvdbSeason, episodeNumber, relatedRows);
                         if (resolved.aniDbId != null) {
                             logger.LogInformation($"(Anidb) Merged season resolved to AniDb ID {resolved.aniDbId} with offset {(resolved.episodeOffset.HasValue ? resolved.episodeOffset.Value.ToString() : "<none>")} (tvdb season {tvdbSeason})");
                             return resolved;
@@ -236,6 +236,12 @@ namespace jellyfin_ani_sync.Helpers {
                 // sequel entries, which carry no <mapping-list> at all, could never
                 // be selected. Require a genuine range in the correct TVDB season,
                 // and return that mapping's offset rather than null.
+                //
+                // Start/End are AniDB episode numbers while absoluteEpisodeNumber is
+                // in TVDB numbering, so the mapping's own offset has to be removed
+                // before comparing - exactly as SeasonLookup() already does in its
+                // specificMapping predicate. Without it the two functions disagree at
+                // a cour boundary whenever the offset is non-zero.
                 // -----------------------------------------------------------------
                 AnimeListAnime foundMapping = null;
                 Mapping foundRange = null;
@@ -243,8 +249,8 @@ namespace jellyfin_ani_sync.Helpers {
                     var match = animeListAnime.MappingList?.Mapping?.FirstOrDefault(mapping =>
                         mapping.Tvdbseason == seasonNumber &&
                         mapping.Start > 0 && mapping.End > 0 &&
-                        mapping.Start <= absoluteEpisodeNumber &&
-                        mapping.End >= absoluteEpisodeNumber);
+                        absoluteEpisodeNumber - mapping.Offset >= mapping.Start &&
+                        absoluteEpisodeNumber - mapping.Offset <= mapping.End);
                     if (match != null) {
                         foundMapping = animeListAnime;
                         foundRange = match;

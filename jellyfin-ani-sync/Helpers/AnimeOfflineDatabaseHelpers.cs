@@ -37,7 +37,7 @@ namespace jellyfin_ani_sync.Helpers {
             // partially-populated object when the offline database has the entry but
             // not yet the cross-references. Those are very different situations and
             // both used to log "Retrieved provider IDs".
-            logger.LogInformation($"[ani-sync-diag] ARM {(int)response.StatusCode} for {source.ToString().ToLower()}={metadataId}, body: {(streamText.Length > 400 ? streamText.Substring(0, 400) + "..." : streamText)}");
+            logger.LogDebug($"[ani-sync-diag] ARM {(int)response.StatusCode} for {source.ToString().ToLower()}={metadataId}, body: {(streamText.Length > 400 ? streamText.Substring(0, 400) + "..." : streamText)}");
             if (!response.IsSuccessStatusCode) {
                 logger.LogWarning($"ARM server returned {(int)response.StatusCode}; treating as no result");
                 return null;
@@ -53,7 +53,7 @@ namespace jellyfin_ani_sync.Helpers {
 
             if (deserializedResponse == null) return null;
 
-            logger.LogInformation($"[ani-sync-diag] ARM parsed -> anidb={Fmt(deserializedResponse.AniDb)}, anilist={Fmt(deserializedResponse.Anilist)}, myanimelist={Fmt(deserializedResponse.MyAnimeList)}, kitsu={Fmt(deserializedResponse.Kitsu)}");
+            logger.LogDebug($"[ani-sync-diag] ARM parsed -> anidb={Fmt(deserializedResponse.AniDb)}, anilist={Fmt(deserializedResponse.Anilist)}, myanimelist={Fmt(deserializedResponse.MyAnimeList)}, kitsu={Fmt(deserializedResponse.Kitsu)}");
 
             return deserializedResponse;
         }
