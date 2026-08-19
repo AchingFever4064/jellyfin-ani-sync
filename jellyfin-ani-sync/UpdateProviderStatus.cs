@@ -404,7 +404,7 @@ namespace jellyfin_ani_sync {
             var candidateTitles = new List<string>();
             if (_animeType == typeof(Episode)) {
                 candidateTitles.Add(episode.SeriesName);
-                candidateTitles.Add(episode.Series?.OriginalTitle);
+                if (episode.Series?.OriginalTitle != null) candidateTitles.Add(episode.Series.OriginalTitle);
             } else {
                 candidateTitles.Add(movie.Name);
                 candidateTitles.Add(movie.OriginalTitle);
