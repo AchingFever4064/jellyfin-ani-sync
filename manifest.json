@@ -8,6 +8,14 @@
     "overview": "Synchronize anime watch status",
     "versions": [
       {
+        "checksum": "6c371d08b3206c8b4ed01ac6490e7bab",
+        "changelog": "testing",
+        "targetAbi": "10.11.11.0",
+        "sourceUrl": "https://github.com/AchingFever4064/jellyfin-ani-sync/releases/download/v4.4.13.0/ani-sync_4.4.13.0.zip",
+        "timestamp": "2026-08-19T20:19:57Z",
+        "version": "4.4.13.0"
+      },
+      {
         "checksum": "dc98de952f941138249a9870547d2d6c",
         "changelog": "Offset correction in absolute-episode match; merged-season lookup via GetAniDbByEpisodeOffset",
         "targetAbi": "10.11.11.0",
