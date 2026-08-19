@@ -46,6 +46,49 @@ public class AnimeListResolutionTests {
     };
 
     /// <summary>
+    /// Returns a fake split cour with 2 anidb entries for absolute episode ranges that are in the same TVDB season,
+    /// which should trigger the SeasonLookup's "Defaulttvdbseason == a" fallback.
+    /// </summary>
+    private static List<AnimeListHelpers.AnimeListAnime> SplitCourRows() => new() {
+        new AnimeListHelpers.AnimeListAnime {
+            Anidbid = "301",
+            Tvdbid = "500",
+            Defaulttvdbseason = "a",
+            MappingList = new AnimeListHelpers.MappingList {
+                Mapping = new List<AnimeListHelpers.Mapping> {
+                    new() { Anidbseason = 1, Tvdbseason = 2, Start = 21, End = 30, Offset = -20 }
+                }
+            }
+        },
+        new AnimeListHelpers.AnimeListAnime {
+            Anidbid = "302",
+            Tvdbid = "500",
+            Defaulttvdbseason = "a",
+            MappingList = new AnimeListHelpers.MappingList {
+                Mapping = new List<AnimeListHelpers.Mapping> {
+                    new() { Anidbseason = 1, Tvdbseason = 2, Start = 31, End = 41, Offset = -30 }
+                }
+            }
+        }
+    };
+
+    /// <summary>
+    /// Absolute episode = 35;
+    /// Should be contained in AniDb 302 range as its between 31-41.
+    /// Fixes the issue of subtracting the mappings own offset before
+    /// the comparison takes place (which would cause a fall back to
+    /// SeasonLookup, which we want to try to prevent).
+    /// </summary>
+    [Test]
+    public void AbsoluteEpisodeLookup_DoesNotSubtractOffsetBeforeRangeCheck() {
+        var returned = AnimeListHelpers.GetAniDbByEpisodeOffset(
+            _logger, absoluteEpisodeNumber: 35, seasonNumber: 2, episodeNumber: 5, related: SplitCourRows());
+
+        Assert.IsTrue(returned.aniDbId == 302);
+        Assert.IsTrue(returned.episodeOffset == -30);
+    }
+
+    /// <summary>
     /// Mushoku Tensei, TVDB 371310. TVDB season 2 is split across two AniDB
     /// entries, the second starting after episode 12.
     /// </summary>
