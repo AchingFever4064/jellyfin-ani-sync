@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using jellyfin_ani_sync.Helpers;
 using Microsoft.Extensions.Logging;
@@ -194,5 +195,102 @@ public class AnimeListResolutionTests {
 
         Assert.IsTrue(AnimeListHelpers.SeasonLookup(_logger, 1, 6, rows).aniDbId == 14758);
         Assert.IsTrue(AnimeListHelpers.SeasonLookup(_logger, 3, 6, rows).aniDbId == 18727);
+    }
+
+    /// <summary>
+    /// Monogatari, TVDB 102261. Twelve AniDB entries share this TVDB ID: six
+    /// sit on TVDB season 0, and the remaining six each own one sequential
+    /// season. Trimmed copies of real anime-list-full.xml rows.
+    ///
+    /// This is the shape a Shokofin library produces for a long-running
+    /// franchise, where every arc is its own AniDB series but they all share
+    /// one TVDB entry. Selecting the wrong row here silently syncs progress
+    /// against a different arc.
+    /// </summary>
+    private static List<AnimeListHelpers.AnimeListAnime> MonogatariRows() => new() {
+        // Season 0 rows. Six of them, all competing for the same TVDB season.
+        new AnimeListHelpers.AnimeListAnime {
+            Anidbid = "8357", Tvdbid = "102261", Defaulttvdbseason = "0",
+            MappingList = new AnimeListHelpers.MappingList {
+                Mapping = new List<AnimeListHelpers.Mapping> { new() { Anidbseason = 0, Tvdbseason = 0 } }
+            }
+        },
+        new AnimeListHelpers.AnimeListAnime {
+            Anidbid = "9453", Tvdbid = "102261", Defaulttvdbseason = "0",
+            MappingList = new AnimeListHelpers.MappingList {
+                Mapping = new List<AnimeListHelpers.Mapping> { new() { Anidbseason = 0, Tvdbseason = 0 } }
+            }
+        },
+        new AnimeListHelpers.AnimeListAnime {
+            Anidbid = "11827", Tvdbid = "102261", Defaulttvdbseason = "0", Episodeoffset = "20"
+        },
+
+        // One AniDB series per sequential TVDB season.
+        new AnimeListHelpers.AnimeListAnime {
+            Anidbid = "6327", Tvdbid = "102261", Defaulttvdbseason = "1",
+            MappingList = new AnimeListHelpers.MappingList {
+                Mapping = new List<AnimeListHelpers.Mapping> {
+                    new() { Anidbseason = 0, Tvdbseason = 0 },
+                    new() { Anidbseason = 0, Tvdbseason = 1 }
+                }
+            }
+        },
+        new AnimeListHelpers.AnimeListAnime { Anidbid = "8658", Tvdbid = "102261", Defaulttvdbseason = "2" },
+        new AnimeListHelpers.AnimeListAnime {
+            Anidbid = "9183", Tvdbid = "102261", Defaulttvdbseason = "3",
+            MappingList = new AnimeListHelpers.MappingList {
+                Mapping = new List<AnimeListHelpers.Mapping> {
+                    new() { Anidbseason = 0, Tvdbseason = 0 },
+                    new() { Anidbseason = 0, Tvdbseason = 3 }
+                }
+            }
+        },
+        new AnimeListHelpers.AnimeListAnime {
+            Anidbid = "11350", Tvdbid = "102261", Defaulttvdbseason = "4",
+            MappingList = new AnimeListHelpers.MappingList {
+                Mapping = new List<AnimeListHelpers.Mapping> { new() { Anidbseason = 0, Tvdbseason = 4 } }
+            }
+        },
+        new AnimeListHelpers.AnimeListAnime {
+            Anidbid = "13033", Tvdbid = "102261", Defaulttvdbseason = "5",
+            MappingList = new AnimeListHelpers.MappingList {
+                Mapping = new List<AnimeListHelpers.Mapping> {
+                    new() { Anidbseason = 0, Tvdbseason = 5 },
+                    new() { Anidbseason = 1, Tvdbseason = 5 }
+                }
+            }
+        },
+        new AnimeListHelpers.AnimeListAnime { Anidbid = "18424", Tvdbid = "102261", Defaulttvdbseason = "6" }
+    };
+
+    /// <summary>
+    /// Each sequential season must resolve to its own AniDB series rather than
+    /// collapsing onto whichever row happens to be first in document order.
+    /// </summary>
+    [Test]
+    public void SeasonLookup_MonogatariResolvesEachSeasonToItsOwnSeries() {
+        var rows = MonogatariRows();
+
+        Assert.IsTrue(AnimeListHelpers.SeasonLookup(_logger, 1, 1, rows).aniDbId == 6327);
+        Assert.IsTrue(AnimeListHelpers.SeasonLookup(_logger, 2, 1, rows).aniDbId == 8658);
+        Assert.IsTrue(AnimeListHelpers.SeasonLookup(_logger, 3, 1, rows).aniDbId == 9183);
+        Assert.IsTrue(AnimeListHelpers.SeasonLookup(_logger, 4, 1, rows).aniDbId == 11350);
+        Assert.IsTrue(AnimeListHelpers.SeasonLookup(_logger, 5, 1, rows).aniDbId == 13033);
+        Assert.IsTrue(AnimeListHelpers.SeasonLookup(_logger, 6, 1, rows).aniDbId == 18424);
+    }
+
+    /// <summary>
+    /// The six TVDB season 0 rows must not be selected for a numbered season.
+    /// </summary>
+    [Test]
+    public void SeasonLookup_MonogatariSeasonZeroRowsDoNotLeak() {
+        var rows = MonogatariRows();
+        int[] seasonZeroIds = { 8357, 9453, 11827 };
+
+        foreach (var season in new[] { 1, 2, 3, 4, 5, 6 }) {
+            var returned = AnimeListHelpers.SeasonLookup(_logger, season, 1, rows);
+            Assert.IsFalse(Array.Exists(seasonZeroIds, id => id == returned.aniDbId),
+                $"TVDB season {season} resolved to a season 0 row ({returned.aniDbId})");
+        }
     }
 }
